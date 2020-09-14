@@ -1,0 +1,1 @@
+void query_disc_wrapper(unsigned long ipix, double radius, unsigned int nside, unsigned long* ipix_arr, unsigned long* nipix, double* pixel_distances);
