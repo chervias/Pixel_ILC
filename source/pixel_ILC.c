@@ -7,7 +7,7 @@
 #include <gsl/gsl_matrix_double.h>
 #include <gsl/gsl_linalg.h>
 
-void pixelILC_DefineCovarianceMatrix(unsigned long ipix, unsigned int nside, unsigned int Nfreqs, PyObject* TQUmaps, double sigma, gsl_matrix *CovT, gsl_matrix *CovQ, gsl_matrix *CovU){
+void pixelILC_DefineCovarianceMatrix(unsigned long ipix, unsigned int nside, unsigned int Nfreqs, PyObject* TQUmaps_s1, PyObject* TQUmaps_s2, double sigma, gsl_matrix *CovT, gsl_matrix *CovQ, gsl_matrix *CovU){
 	// First, we need to determine which pixels are within the radius (which is in radians)
 	unsigned int i,n,nn,p;
 	unsigned int npix_max = 200000;
@@ -31,14 +31,14 @@ void pixelILC_DefineCovarianceMatrix(unsigned long ipix, unsigned int nside, uns
 				// TQUmaps shape [Nfreqs,3,npix]
 				//(1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps,n,0,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps,nn,0,ipix_p))
 				//printf("Value %f\n", pixel_distances[p] );
-				gsl_matrix_set(CovT, n, nn, gsl_matrix_get(CovT,n,nn) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps,n,0,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps,nn,0,ipix_p)) );
-				gsl_matrix_set(CovQ, n, nn, gsl_matrix_get(CovQ,n,nn) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps,n,1,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps,nn,1,ipix_p)) );
-				gsl_matrix_set(CovU, n, nn, gsl_matrix_get(CovU,n,nn) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps,n,2,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps,nn,2,ipix_p)) );
+				gsl_matrix_set(CovT, n, nn, gsl_matrix_get(CovT,n,nn) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps_s1,n,0,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps_s2,nn,0,ipix_p)) );
+				gsl_matrix_set(CovQ, n, nn, gsl_matrix_get(CovQ,n,nn) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps_s1,n,1,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps_s2,nn,1,ipix_p)) );
+				gsl_matrix_set(CovU, n, nn, gsl_matrix_get(CovU,n,nn) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps_s1,n,2,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps_s2,nn,2,ipix_p)) );
 				if(n!=nn){
 					// We also copy the symmetric, we swap n and nn
-					gsl_matrix_set(CovT, nn, n, gsl_matrix_get(CovT,nn,n) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps,n,0,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps,nn,0,ipix_p)) );
-					gsl_matrix_set(CovQ, nn, n, gsl_matrix_get(CovQ,nn,n) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps,n,1,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps,nn,1,ipix_p)) );
-					gsl_matrix_set(CovU, nn, n, gsl_matrix_get(CovU,nn,n) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps,n,2,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps,nn,2,ipix_p)) );
+					gsl_matrix_set(CovT, nn, n, gsl_matrix_get(CovT,nn,n) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps_s1,n,0,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps_s2,nn,0,ipix_p)) );
+					gsl_matrix_set(CovQ, nn, n, gsl_matrix_get(CovQ,nn,n) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps_s1,n,1,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps_s2,nn,1,ipix_p)) );
+					gsl_matrix_set(CovU, nn, n, gsl_matrix_get(CovU,nn,n) + (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps_s1,n,2,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps_s2,nn,2,ipix_p)) );
 				}
 			}
 		}

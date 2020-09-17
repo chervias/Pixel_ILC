@@ -13,7 +13,8 @@ static PyObject *doPixelILC(PyObject *self, PyObject *args){
 	// TQUmap will be a numpy array with the shape [Nfreqs,3,npix]
 	// ipix_arr will be the array with all the pixel indices
 	//a will be an array with shape [Nfreqs] which contains the CMB SED (in RJ units)
-	PyObject *TQUmaps = NULL;
+	PyObject *TQUmaps_s1 = NULL;
+	PyObject *TQUmaps_s2 = NULL;
 	PyObject *nside = NULL;
 	PyObject *a = NULL;
 	PyObject *fwhm = NULL;
@@ -22,7 +23,7 @@ static PyObject *doPixelILC(PyObject *self, PyObject *args){
 	PyObject *Npixels=NULL;
 	PyObject *rank=NULL;
 	
-	if (!PyArg_ParseTuple(args, "OOOOOOOO",&TQUmaps, &nside, &a, &fwhm, &Nfreqs, &ipix_arr, &Npixels, &rank))
+	if (!PyArg_ParseTuple(args, "OOOOOOOOO",&TQUmaps_s1,&TQUmaps_s2, &nside, &a, &fwhm, &Nfreqs, &ipix_arr, &Npixels, &rank))
 		return NULL;
 	
 	unsigned int p;
@@ -63,7 +64,7 @@ static PyObject *doPixelILC(PyObject *self, PyObject *args){
 		empty_mat_contents(CovTi,Nfreqs_);
 		empty_mat_contents(CovQi,Nfreqs_);
 		empty_mat_contents(CovUi,Nfreqs_);
-		pixelILC_DefineCovarianceMatrix(ipix, nside_map, Nfreqs_, TQUmaps, sigma, CovT, CovQ, CovU);
+		pixelILC_DefineCovarianceMatrix(ipix, nside_map, Nfreqs_, TQUmaps_s1, TQUmaps_s2, sigma, CovT, CovQ, CovU);
 		// Now we need to invert the Cov matrices
 		invert_a_matrix(CovT,CovTi,Nfreqs_);
 		invert_a_matrix(CovQ,CovQi,Nfreqs_);
