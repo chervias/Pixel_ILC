@@ -110,7 +110,7 @@ void empty_mat_contents(gsl_matrix *matrix, unsigned int size){
 void pixelILC_DefineCovarianceMatrix_NILC(unsigned long ipix, unsigned int n_win, unsigned int nside, unsigned int Nfreqs, PyObject* TQUmaps_s1, double sigma, gsl_matrix *CovT, gsl_matrix *CovQ, gsl_matrix *CovU){
 	// First, we need to determine which pixels are within the radius (which is in radians)
 	unsigned int i,n,nn,p;
-	double val_n,val_nn,gauss_w;
+	double val_n_t,val_nn_t,val_n_q,val_nn_q,val_n_u,val_nn_u,gauss_w;
 	unsigned int npix_max = 200000;
 	double radius = 5 * sigma ;
 	unsigned long* ipix_arr = calloc(npix_max,sizeof(long));
@@ -132,18 +132,22 @@ void pixelILC_DefineCovarianceMatrix_NILC(unsigned long ipix, unsigned int n_win
 				// TQUmaps shape [Nfreqs,3,npix]
 				//(1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps,n,0,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps,nn,0,ipix_p))
 				//printf("Value %f\n", pixel_distances[p] );
-				val_n = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,n,0,ipix_p));
-				val_nn = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,nn,0,ipix_p));
+				val_n_t = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,n,0,ipix_p));
+				val_nn_t = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,nn,0,ipix_p));
+				val_n_q = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,n,1,ipix_p));
+				val_nn_q = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,nn,1,ipix_p));
+				val_n_u = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,n,2,ipix_p));
+				val_nn_u = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,nn,2,ipix_p));
 				gauss_w = (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2));
 
-				gsl_matrix_set(CovT, n, nn, gsl_matrix_get(CovT,n,nn) + gauss_w * val_n * val_nn );
-				gsl_matrix_set(CovQ, n, nn, gsl_matrix_get(CovQ,n,nn) + gauss_w * val_n * val_nn );
-				gsl_matrix_set(CovU, n, nn, gsl_matrix_get(CovU,n,nn) + gauss_w * val_n * val_nn );
+				gsl_matrix_set(CovT, n, nn, gsl_matrix_get(CovT,n,nn) + gauss_w * val_n_t * val_nn_t );
+				gsl_matrix_set(CovQ, n, nn, gsl_matrix_get(CovQ,n,nn) + gauss_w * val_n_q * val_nn_q );
+				gsl_matrix_set(CovU, n, nn, gsl_matrix_get(CovU,n,nn) + gauss_w * val_n_u * val_nn_u );
 				if(n!=nn){
 					// We also copy the symmetric, we swap n and nn
-					gsl_matrix_set(CovT, nn, n, gsl_matrix_get(CovT,nn,n) + gauss_w * val_n * val_nn );
-					gsl_matrix_set(CovQ, nn, n, gsl_matrix_get(CovQ,nn,n) + gauss_w * val_n * val_nn );
-					gsl_matrix_set(CovU, nn, n, gsl_matrix_get(CovU,nn,n) + gauss_w * val_n * val_nn );
+					gsl_matrix_set(CovT, nn, n, gsl_matrix_get(CovT,nn,n) + gauss_w * val_n_t * val_nn_t );
+					gsl_matrix_set(CovQ, nn, n, gsl_matrix_get(CovQ,nn,n) + gauss_w * val_n_q * val_nn_q );
+					gsl_matrix_set(CovU, nn, n, gsl_matrix_get(CovU,nn,n) + gauss_w * val_n_u * val_nn_u );
 				}
 			}
 		}
