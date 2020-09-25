@@ -107,3 +107,72 @@ void empty_mat_contents(gsl_matrix *matrix, unsigned int size){
         }
     }
 }
+void pixelILC_DefineCovarianceMatrix_NILC(unsigned long ipix, unsigned int n_win, unsigned int nside, unsigned int Nfreqs, PyObject* TQUmaps_s1, double sigma, gsl_matrix *CovT, gsl_matrix *CovQ, gsl_matrix *CovU){
+	// First, we need to determine which pixels are within the radius (which is in radians)
+	unsigned int i,n,nn,p;
+	double val_n,val_nn,gauss_w;
+	unsigned int npix_max = 200000;
+	double radius = 5 * sigma ;
+	unsigned long* ipix_arr = calloc(npix_max,sizeof(long));
+	double* pixel_distances = calloc(npix_max,sizeof(double));
+	unsigned long nipix , ipix_p;
+	//printf("pixel %i\n",ipix);
+	query_disc_wrapper(ipix,radius,nside,ipix_arr,&nipix,pixel_distances);
+	// Now in nipix we have the number of pixels inside the disc
+	//printf("There are %i pixels in the Domain of pixel %i\n",nipix,ipix);
+	// Cov will have shape [3,Nfreqs,Nfreqs] with indices i,n,nn
+	// This is how it is indexed Cov[ i*Nfreqs*Nfreqs + n *Nfreqs + nn ]
+	// We iterate over the pixels
+	for(p=0;p<nipix;p++){
+		ipix_p = ipix_arr[p];
+		//printf("pixel %i",ipix_p);
+		// we iterate over the bands
+		for(n=0;n<Nfreqs;n++){
+			for(nn=n;nn<Nfreqs;nn++){
+				// TQUmaps shape [Nfreqs,3,npix]
+				//(1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2)) * (*(double*)PyArray_GETPTR3(TQUmaps,n,0,ipix_p)) * (*(double*)PyArray_GETPTR3(TQUmaps,nn,0,ipix_p))
+				//printf("Value %f\n", pixel_distances[p] );
+				val_n = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,n,0,ipix_p));
+				val_nn = (*(double*)PyArray_GETPTR4(TQUmaps_s1,n_win,nn,0,ipix_p));
+				gauss_w = (1.0/nipix)*(1.0/2.0/M_PI/pow(sigma,2)) * exp(-0.5 * pow(pixel_distances[p]/sigma,2));
+
+				gsl_matrix_set(CovT, n, nn, gsl_matrix_get(CovT,n,nn) + gauss_w * val_n * val_nn );
+				gsl_matrix_set(CovQ, n, nn, gsl_matrix_get(CovQ,n,nn) + gauss_w * val_n * val_nn );
+				gsl_matrix_set(CovU, n, nn, gsl_matrix_get(CovU,n,nn) + gauss_w * val_n * val_nn );
+				if(n!=nn){
+					// We also copy the symmetric, we swap n and nn
+					gsl_matrix_set(CovT, nn, n, gsl_matrix_get(CovT,nn,n) + gauss_w * val_n * val_nn );
+					gsl_matrix_set(CovQ, nn, n, gsl_matrix_get(CovQ,nn,n) + gauss_w * val_n * val_nn );
+					gsl_matrix_set(CovU, nn, n, gsl_matrix_get(CovU,nn,n) + gauss_w * val_n * val_nn );
+				}
+			}
+		}
+	}
+	// free the arrays
+	free(ipix_arr);
+	free(pixel_distances);
+	// Now the Cov matrices are filled out
+}
+void pixelILC_CalculateILCWeight_NILC(PyObject* a, gsl_matrix *CovTi, gsl_matrix *CovQi, gsl_matrix *CovUi, double* weights, unsigned int Nfreqs, unsigned int Nwindows, unsigned int p, unsigned int n_win){
+	// shape of weights Npixels_*Nwindows_*3*Nfreqs_ 
+	double aCia_T=0.0,aCia_Q=0.0,aCia_U=0.0;
+	unsigned int i,j;
+	for(i=0;i<Nfreqs;i++){
+		for(j=0;j<Nfreqs;j++){
+			aCia_T += (*(double*)PyArray_GETPTR1(a,i)) * gsl_matrix_get(CovTi,i,j) * (*(double*)PyArray_GETPTR1(a,j)) ;
+			aCia_Q += (*(double*)PyArray_GETPTR1(a,i)) * gsl_matrix_get(CovQi,i,j) * (*(double*)PyArray_GETPTR1(a,j)) ;
+			aCia_U += (*(double*)PyArray_GETPTR1(a,i)) * gsl_matrix_get(CovUi,i,j) * (*(double*)PyArray_GETPTR1(a,j)) ;
+		}
+	}
+	for(i=0;i<Nfreqs;i++){
+		for(j=0;j<Nfreqs;j++){
+			// This is the T weight
+			weights[p*Nwindows*3*Nfreqs + n_win*3*Nfreqs + 0*Nfreqs + i] += (*(double*)PyArray_GETPTR1(a,j)) * gsl_matrix_get(CovTi,j,i) / aCia_T ;
+			// This is the Q weight
+			weights[p*Nwindows*3*Nfreqs + n_win*3*Nfreqs + 1*Nfreqs + i] += (*(double*)PyArray_GETPTR1(a,j)) * gsl_matrix_get(CovQi,j,i) / aCia_Q ;
+			// This is the U weight
+			weights[p*Nwindows*3*Nfreqs + n_win*3*Nfreqs + 2*Nfreqs + i] += (*(double*)PyArray_GETPTR1(a,j)) * gsl_matrix_get(CovUi,j,i) / aCia_U ;
+		}
+	}
+	// after this weights will have the calculated weights.
+}
