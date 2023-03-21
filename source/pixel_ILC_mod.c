@@ -8,6 +8,8 @@
 #include <gsl/gsl_matrix.h>
 #include <gsl/gsl_linalg.h>
 #include <gsl/gsl_blas.h>
+#include <gsl/gsl_errno.h>
+#include <gsl/gsl_spline.h>
 #include <omp.h>
 
 #define H_PLANCK 6.6260755e-34
@@ -69,7 +71,7 @@ static PyObject *doNILC_CovarPixelSpace_SingleField(PyObject *self, PyObject *ar
 }
 static PyObject *doNILC_SHTSmoothing_SingleField(PyObject *self, PyObject *args){
 	/* Getting the elements */
-	// TEB2maps will be a numpy array with the shape [Nfreqs2,npix]
+	// TEB2maps will be a numpy array with the shape [npix,Nfreqs2]
 	// ipix_arr will be the array with all the pixel indices
 	//a will be an array with shape [Nfreqs] which contains the CMB SED (in RJ units)
 	PyObject *TEBmaps = NULL;
@@ -128,6 +130,127 @@ static PyObject *doNILC_SHTSmoothing_SingleField(PyObject *self, PyObject *args)
 	}
 	npy_intp npy_shape[2] = {Npixels_,Nfreqs_};
 	PyObject *arr 		= PyArray_SimpleNewFromData(2,npy_shape, NPY_DOUBLE, weights);
+	PyArray_ENABLEFLAGS((PyArrayObject *)arr, NPY_OWNDATA);
+	return(arr);
+}
+
+static PyObject *doNILC_SHTSmoothing_SingleField_pixpixcorr(PyObject *self, PyObject *args){
+	/* Getting the elements */
+	// CovarianceMaps will be a numpy array with the shape [npix,Nfreqs2]
+	// ipix_arr will be the array with all the pixel indices
+	// cbeta_arr will be 1000 values between -1 and 1, representing the cos(beta) where beta is the angular distance between 2 pixels
+	// Func will be a 2D array with shape [Nfreqs2,1000]
+	// vec_arr will be a 2D array with shape [3,12*nside**2] and it contains the unit vector pointing to all pixels in a map. We use it for cos(beta) = n1 dot n2
+	// a should be a vector with size Nfreqs*Npixels
+	PyObject *CovarianceMaps = NULL;
+	PyObject *nside = NULL;
+	PyObject *a = NULL;
+	PyObject *Nfreqs = NULL;
+	PyObject *ipix_arr=NULL;
+	PyObject *Npixels=NULL;
+	PyObject *cbeta_arr=NULL;
+	PyObject *Func=NULL;
+	PyObject *vec_arr=NULL;
+	PyObject *i_map=NULL;
+	PyObject *j_map=NULL;
+	
+	if (!PyArg_ParseTuple(args, "OOOOOOOOOOO" , &CovarianceMaps, &nside, &a, &Nfreqs, &ipix_arr, &Npixels, &cbeta_arr, &Func, &vec_arr, &i_map, &j_map))
+		return NULL;
+	int nside_map = (int) PyLong_AsLong(nside);
+	int Nfreqs_ = (int) PyLong_AsLong(Nfreqs);
+	int Nfreqs2 = (int) Nfreqs_*(Nfreqs_+1)/2;
+	long Npixels_ = (long) PyLong_AsLong(Npixels);
+	int npix_map = 12 * nside_map * nside_map;
+	long *ipix_ptr = PyArray_DATA(ipix_arr);
+	double *CovarianceMaps_ = PyArray_DATA(CovarianceMaps);
+	double *a_ = PyArray_DATA(a);
+	double *cbeta_arr_ = PyArray_DATA(cbeta_arr);
+	double *Func_ = PyArray_DATA(Func);
+	double *vec_arr_ = PyArray_DATA(vec_arr);
+	int *i_map_ = PyArray_DATA(i_map);
+	int *j_map_ = PyArray_DATA(j_map);
+	// This is for a single field
+	
+	double* weights = calloc(Npixels_*Nfreqs_,sizeof(double));
+	
+	// the covariance matrix for the full map
+	gsl_matrix *Cov_matrix = gsl_matrix_calloc(Nfreqs_*Npixels_, Nfreqs_*Npixels_), *iCov_matrix = gsl_matrix_calloc(Nfreqs_*Npixels_, Nfreqs_*Npixels_) ;
+	gsl_matrix_set_zero(Cov_matrix);
+	gsl_matrix_set_zero(iCov_matrix);
+	
+	// the parallel block will parallelize over the combination of pixels 
+	long Npixels2 = Npixels_*(Npixels_+1)/2 ;
+	
+	int n,nn,c;
+	c = 0;
+	for(n=0;n<Nfreqs_;n++){
+		for(nn=n;nn<Nfreqs_;nn++){
+			#pragma omp parallel
+			{
+			long p;
+			int i_,j_ ;
+			double function[1000];
+			// do the interpolation for frequency pair n, nn
+			gsl_interp_accel *acc    = gsl_interp_accel_alloc ();
+			gsl_spline       *spline = gsl_spline_alloc(gsl_interp_cspline, 1000);
+			for(int mm=0;mm<1000;mm++) function[mm] = Func_[c * 1000 + mm];
+			gsl_spline_init (spline, cbeta_arr_, function, 1000);
+			
+			#pragma omp for schedule(static)
+			for(p=0;p<Npixels2;p++){
+				// p is a combination of 2 pixels being correlated p_i and p_j
+				i_ = i_map_[p];
+				j_ = j_map_[p];
+				int ipix_int_i = (int) ipix_ptr[i_];
+				// if i=j, then we fill the diagonal term first
+				double vF;
+				if (i_ == j_){
+					// TEBmaps is a numpy array with shape npix_per_window,Nfreqs2 = Nfreqs*(Nfreqs+1)/2
+					vF = CovarianceMaps_[ipix_int_i*Nfreqs2 + c] ;
+					gsl_matrix_set(Cov_matrix, i_*Nfreqs_+n, j_*Nfreqs_+nn, vF );
+					if (n!=nn) gsl_matrix_set(Cov_matrix, i_*Nfreqs_+nn, j_*Nfreqs_+n, vF );
+				}
+				else{
+					// if not, then we should fill the other terms
+					int ipix_int_j = (int) ipix_ptr[j_];
+					double cbeta_pair = 0.0;
+					for (int k=0;k<3;k++) cbeta_pair += vec_arr_[k*npix_map+ipix_int_i]*vec_arr_[k*npix_map+ipix_int_j];
+					// interpolate the value
+					vF = gsl_spline_eval(spline, cbeta_pair, acc);
+					gsl_matrix_set(Cov_matrix, i_*Nfreqs_+n, j_*Nfreqs_+nn, vF );
+					gsl_matrix_set(Cov_matrix, j_*Nfreqs_+n, i_*Nfreqs_+nn, vF );
+					gsl_matrix_set(Cov_matrix, i_*Nfreqs_+nn, j_*Nfreqs_+n, vF );
+					gsl_matrix_set(Cov_matrix, j_*Nfreqs_+nn, i_*Nfreqs_+n, vF );
+				}
+			}
+			gsl_spline_free (spline);
+			gsl_interp_accel_free (acc);
+			}
+			c += 1 ;
+		}
+	}
+	// the covariance matrix is filled, now I invert it
+	invert_a_matrix(Cov_matrix, iCov_matrix, Nfreqs_*Npixels_ );
+	// now calculate the weights
+	// shape of weights Npixels_*Nfreqs_
+	double aCia_F=0.0;
+	int i,j;
+	for(i=0;i<Nfreqs_*Npixels_;i++){
+		for(j=0;j<Nfreqs_*Npixels_;j++){
+			aCia_F += a_[i] * gsl_matrix_get(iCov_matrix,i,j) * a_[j] ;
+		}
+	}
+	for(i=0;i<Nfreqs_*Npixels_;i++){
+		for(j=0;j<Nfreqs_*Npixels_;j++){
+			// This is the F weight
+			weights[i] += a_[j] * gsl_matrix_get(iCov_matrix,j,i) / aCia_F ;
+		}
+	}
+	// after this weights will have the calculated weights.
+	gsl_matrix_free(Cov_matrix);
+	gsl_matrix_free(iCov_matrix);
+	npy_intp npy_shape[1] = {Npixels_*Nfreqs_};
+	PyObject *arr 		= PyArray_SimpleNewFromData(1,npy_shape, NPY_DOUBLE, weights);
 	PyArray_ENABLEFLAGS((PyArrayObject *)arr, NPY_OWNDATA);
 	return(arr);
 }
@@ -401,6 +524,7 @@ static PyMethodDef PixelILCMethods[] = {
 	{"doCNILC_SHTSmoothing_SingleField",doCNILC_SHTSmoothing_SingleField,METH_VARARGS,NULL},
   {"doCNILC_ThermalDust_SHTSmoothing_SingleField",doCNILC_ThermalDust_SHTSmoothing_SingleField,METH_VARARGS,NULL},
   {"doCNILC_ThermalDust_Synchrotron_SHTSmoothing_SingleField",doCNILC_ThermalDust_Synchrotron_SHTSmoothing_SingleField,METH_VARARGS,NULL},
+	{"doNILC_SHTSmoothing_SingleField_pixpixcorr",doNILC_SHTSmoothing_SingleField_pixpixcorr,METH_VARARGS,NULL},
  {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
